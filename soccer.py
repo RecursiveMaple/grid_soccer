@@ -2,6 +2,7 @@ import random
 
 import gymnasium as gym
 import numpy as np
+import pygame
 from gymnasium import spaces
 
 
@@ -17,6 +18,11 @@ class GridSoccerEnv(gym.Env):
                 spaces.Box(low=0, high=max(grid_size), shape=(5,), dtype=np.int32),
             )
         )
+        self.walls = []
+        for y in range(grid_size[1]):
+            if y not in [grid_size[1] // 2 - 1, grid_size[1] // 2]:
+                self.walls.append((0, y))
+                self.walls.append((grid_size[0] - 1, y))
         self.reset()
 
     def reset(self):
@@ -28,9 +34,9 @@ class GridSoccerEnv(gym.Env):
 
     def _random_position(self, half):
         x = (
-            random.randint(0, self.grid_size[0] // 2 - 1)
+            random.randint(1, self.grid_size[0] // 2 - 2)
             if half == "left"
-            else random.randint(self.grid_size[0] // 2, self.grid_size[0] - 1)
+            else random.randint(self.grid_size[0] // 2, self.grid_size[0] - 2)
         )
         y = random.randint(0, self.grid_size[1] - 1)
         return (x, y)
@@ -81,13 +87,14 @@ class GridSoccerEnv(gym.Env):
         elif action == 4:  # right
             pos[0] = min(self.grid_size[0] - 1, pos[0] + 1)
 
-        if tuple(pos) != opponent_pos:
-            if player == 1:
-                self.player1_pos = tuple(pos)
-            else:
-                self.player2_pos = tuple(pos)
-        else:
+        pos = tuple(pos)
+        if pos == opponent_pos:
             self.ball_control = player
+        elif pos not in self.walls:
+            if player == 1:
+                self.player1_pos = pos
+            else:
+                self.player2_pos = pos
 
     def _check_goal(self):
         reward = 0
@@ -109,3 +116,63 @@ class GridSoccerEnv(gym.Env):
             reward = -1
             done = True
         return reward, done
+
+    def render(self, mode="human"):
+        cell_size = 50
+        width, height = self.grid_size[0] * cell_size, self.grid_size[1] * cell_size
+        if not hasattr(self, "screen"):
+            pygame.init()
+            self.screen = pygame.display.set_mode((width, height))
+            pygame.display.set_caption("Grid Soccer")
+        self.screen.fill((255, 255, 255))
+
+        for x in range(self.grid_size[0]):
+            for y in range(self.grid_size[1]):
+                rect = pygame.Rect(x * cell_size, y * cell_size, cell_size, cell_size)
+                pygame.draw.rect(self.screen, (0, 0, 0), rect, 1)
+
+        goal_color = (200, 200, 200)
+        pygame.draw.rect(
+            self.screen,
+            goal_color,
+            (0, (self.grid_size[1] // 2 - 1) * cell_size, cell_size, 2 * cell_size),
+        )
+        pygame.draw.rect(
+            self.screen,
+            goal_color,
+            (
+                (self.grid_size[0] - 1) * cell_size,
+                (self.grid_size[1] // 2 - 1) * cell_size,
+                cell_size,
+                2 * cell_size,
+            ),
+        )
+
+        wall_color = (100, 100, 100)
+        for wall in self.walls:
+            x, y = wall
+            pygame.draw.rect(
+                self.screen,
+                wall_color,
+                (x * cell_size, y * cell_size, cell_size, cell_size),
+            )
+
+        font = pygame.font.SysFont(None, 36)
+        for player, pos in [(1, self.player1_pos), (2, self.player2_pos)]:
+            x, y = pos
+            text = font.render(str(player), True, (0, 0, 0))
+            text_rect = text.get_rect(
+                center=(x * cell_size + cell_size // 2, y * cell_size + cell_size // 2)
+            )
+            self.screen.blit(text, text_rect)
+            if self.ball_control == player:
+                pygame.draw.circle(
+                    self.screen, (0, 0, 0), text_rect.center, cell_size // 2, 2
+                )
+
+        pygame.display.flip()
+
+    def close(self):
+        if hasattr(self, "screen"):
+            pygame.quit()
+            del self.screen
